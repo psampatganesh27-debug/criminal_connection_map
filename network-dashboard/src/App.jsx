@@ -22,6 +22,7 @@ export default function App() {
   const [pathMode, setPathMode] = useState(false)
   const [pathEndpoints, setPathEndpoints] = useState([])
   const [highlightedPath, setHighlightedPath] = useState([])
+  const [newlyIngestedIds, setNewlyIngestedIds] = useState(new Set()) 
 
   // Set timeline bounds using absolute timestamps
   const MIN_TIMESTAMP = new Date('2026-07-01').getTime()
@@ -34,6 +35,10 @@ export default function App() {
   })
 
   const [ingestMode, setIngestMode] = useState(false)
+  const [ingestType, setIngestType] = useState('FIR')
+  const [ingestFile, setIngestFile] = useState(null)
+
+
   const [newFIR, setNewFIR] = useState({ 
     fir_number: '', 
     filing_date: '2026-08-31', 
@@ -55,10 +60,40 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  const fetchNetworkData = () => {
+  const fetchNetworkData = (highlightNew = false) => {
     fetch('http://localhost:8000/api/network')
       .then((res) => res.json())
-      .then((data) => setRawGraphData(data))
+      .then((data) => {
+        if (highlightNew && rawGraphData.nodes.length > 0) {
+          const oldIds = new Set(rawGraphData.nodes.map((n) => n.id))
+          const freshIds = new Set(data.nodes.filter((n) => !oldIds.has(n.id)).map((n) => n.id))
+
+          if (freshIds.size > 0) {
+            setNewlyIngestedIds(freshIds)
+
+            // Smoothly pan and zoom to the center of newly created nodes
+            setTimeout(() => {
+              if (graphRef.current) {
+                const currentGraphNodes = graphRef.current.graphData?.()?.nodes || []
+                const matched = currentGraphNodes.filter(n => freshIds.has(n.id) && isFinite(n.x) && isFinite(n.y))
+                
+                if (matched.length > 0) {
+                  const avgX = matched.reduce((sum, n) => sum + n.x, 0) / matched.length
+                  const avgY = matched.reduce((sum, n) => sum + n.y, 0) / matched.length
+                  graphRef.current.centerAt(avgX, avgY, 1000)
+                  graphRef.current.zoom(2.0, 1000)
+                }
+              }
+            }, 700)
+
+            // Fade the neon halo out after 12 seconds
+            setTimeout(() => {
+              setNewlyIngestedIds(new Set())
+            }, 12000)
+          }
+        }
+        setRawGraphData(data)
+      })
       .catch((err) => console.error('Error loading graph:', err))
 
     fetch('http://localhost:8000/api/analytics/influencers')
@@ -66,6 +101,8 @@ export default function App() {
       .then((data) => setInfluencers(data))
       .catch((err) => console.error('Error loading influencers:', err))
   }
+
+
 
   useEffect(() => {
     fetchNetworkData()
@@ -95,13 +132,43 @@ export default function App() {
         alert(`Ingested successfully! Extracted ${data.extracted.phones.length} phones and ${data.extracted.suspects.length} suspects.`)
         setNewFIR({ fir_number: '', filing_date: '2026-08-31', narrative: '' })
         setIngestMode(false)
-        fetchNetworkData() 
+        setCurrentTimestamp(Date.now())
+        fetchNetworkData(true) 
       } else {
         alert("Ingestion failed: " + data.detail)
       }
     })
     .catch(err => console.error("Ingest error:", err))
   }
+
+  const handleStructuredSubmit = (e) => {
+    e.preventDefault()
+    if (!ingestFile) return alert("Please select a CSV file.")
+
+    const formData = new FormData()
+    formData.append('file', ingestFile)
+    formData.append('data_type', ingestType)
+    formData.append('analyst_id', newFIR.analyst_id)
+
+    fetch('http://localhost:8000/api/ingest/structured', {
+      method: 'POST',
+      body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === 'success') {
+        alert(`Successfully ingested ${data.processed_rows} rows of ${ingestType} data!`)
+        setIngestFile(null)
+        setIngestMode(false)
+        setCurrentTimestamp(Date.now())
+        fetchNetworkData(true) // Instantly reloads the map with the new connections
+      } else {
+        alert("Ingestion failed: " + data.detail)
+      }
+    })
+    .catch(err => console.error("Structured Ingest error:", err))
+  }
+
 
   const filteredData = useMemo(() => {
     if (!rawGraphData.nodes.length) return { nodes: [], links: [] }
@@ -279,6 +346,20 @@ export default function App() {
       ctx.fill()
     }
 
+    // Neon pulse highlight for newly created nodes
+    const isNew = newlyIngestedIds.has(node.id)
+    if (isNew) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, radius + 8, 0, 2 * Math.PI, false)
+      ctx.strokeStyle = '#00f2fe'
+      ctx.lineWidth = 3
+      ctx.shadowColor = '#00f2fe'
+      ctx.shadowBlur = 16
+      ctx.stroke()
+      ctx.restore()
+    }
+
     ctx.beginPath()
     ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false)
     ctx.fillStyle = cfg.color
@@ -294,6 +375,7 @@ export default function App() {
       isSelected || 
       isMatch || 
       isInPath || 
+      isNew ||
       (appMode === 'WATCHER' && opacity === 1)
     )
 
@@ -313,7 +395,7 @@ export default function App() {
     }
     
     ctx.globalAlpha = 1
-  }, [selectedNode, searchTerm, highlightedPath, pathEndpoints, appMode, watcherTargetId, rawGraphData.links, currentTimestamp])
+  }, [selectedNode, searchTerm, highlightedPath, pathEndpoints, appMode, watcherTargetId, rawGraphData.links, currentTimestamp, newlyIngestedIds])
 
   const toggleFilter = (type) => setActiveFilters((prev) => ({ ...prev, [type]: !prev[type] }))
 
@@ -462,18 +544,35 @@ export default function App() {
 
         {/* Ingest Form */}
         {ingestMode && (
-          <form onSubmit={handleIngestSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#111827', padding: '10px', borderRadius: '4px', border: '1px solid #374151' }}>
-              {/* NEW ANALYST ID FIELD */}
-              <input type="text" placeholder="Analyst ID (e.g. Agent_742)" value={newFIR.analyst_id} onChange={e => setNewFIR({...newFIR, analyst_id: e.target.value})} style={{ padding: '6px', backgroundColor: '#1f2937', border: '1px solid #4b5563', color: '#fff', fontSize: '0.75rem' }} required />
-              
-              <input type="text" placeholder="FIR Number (e.g. FIR-2026-001)" value={newFIR.fir_number} onChange={e => setNewFIR({...newFIR, fir_number: e.target.value})} style={{ padding: '6px', backgroundColor: '#1f2937', border: '1px solid #4b5563', color: '#fff', fontSize: '0.75rem' }} required />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#111827', padding: '10px', borderRadius: '4px', border: '1px solid #374151' }}>
+            
+            {/* Intel Type Selector */}
+            <select value={ingestType} onChange={e => setIngestType(e.target.value)} style={{ padding: '6px', backgroundColor: '#374151', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold', outline: 'none' }}>
+              <option value="FIR">📝 Unstructured FIR (Text)</option>
+              <option value="CDR">📱 Call Data Records (CSV)</option>
+              <option value="BANK">🏦 Bank Transactions (CSV)</option>
+            </select>
 
-              <input type="date" value={newFIR.filing_date} onChange={e => setNewFIR({...newFIR, filing_date: e.target.value})} style={{ padding: '6px', backgroundColor: '#1f2937', border: '1px solid #4b5563', color: '#fff', fontSize: '0.75rem' }} required />
-
-              <textarea placeholder="Paste police report narrative here..." value={newFIR.narrative} onChange={e => setNewFIR({...newFIR, narrative: e.target.value})} style={{ padding: '6px', backgroundColor: '#1f2937', border: '1px solid #4b5563', color: '#fff', fontSize: '0.75rem', height: '80px', resize: 'none' }} required />
-
-              <button type="submit" style={{ padding: '8px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>Process & Ingest</button>
-          </form>
+            {ingestType === 'FIR' ? (
+              <form onSubmit={handleIngestSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <input type="text" placeholder="Analyst ID (e.g. Agent_742)" value={newFIR.analyst_id} onChange={e => setNewFIR({...newFIR, analyst_id: e.target.value})} style={{ padding: '6px', backgroundColor: '#1f2937', border: '1px solid #4b5563', color: '#fff', fontSize: '0.75rem' }} required />
+                <input type="text" placeholder="FIR Number (e.g. FIR-2026-001)" value={newFIR.fir_number} onChange={e => setNewFIR({...newFIR, fir_number: e.target.value})} style={{ padding: '6px', backgroundColor: '#1f2937', border: '1px solid #4b5563', color: '#fff', fontSize: '0.75rem' }} required />
+                <input type="date" value={newFIR.filing_date} onChange={e => setNewFIR({...newFIR, filing_date: e.target.value})} style={{ padding: '6px', backgroundColor: '#1f2937', border: '1px solid #4b5563', color: '#fff', fontSize: '0.75rem' }} required />
+                <textarea placeholder="Paste police report narrative here..." value={newFIR.narrative} onChange={e => setNewFIR({...newFIR, narrative: e.target.value})} style={{ padding: '6px', backgroundColor: '#1f2937', border: '1px solid #4b5563', color: '#fff', fontSize: '0.75rem', height: '80px', resize: 'none' }} required />
+                <button type="submit" style={{ padding: '8px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>Process & Ingest</button>
+              </form>
+            ) : (
+              <form onSubmit={handleStructuredSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <input type="text" placeholder="Analyst ID" value={newFIR.analyst_id} onChange={e => setNewFIR({...newFIR, analyst_id: e.target.value})} style={{ padding: '6px', backgroundColor: '#1f2937', border: '1px solid #4b5563', color: '#fff', fontSize: '0.75rem' }} required />
+                
+                <div style={{ border: '1px dashed #4b5563', padding: '10px', borderRadius: '4px', textAlign: 'center' }}>
+                  <input type="file" accept=".csv" onChange={e => setIngestFile(e.target.files[0])} style={{ color: '#fff', fontSize: '0.7rem', width: '100%' }} required />
+                </div>
+                
+                <button type="submit" style={{ padding: '8px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>Upload Structured Data</button>
+              </form>
+            )}
+          </div>
         )}
 
         {/* Pathfinding Instructions */}

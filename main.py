@@ -7,6 +7,9 @@ import spacy
 from rapidfuzz import process, fuzz
 import re
 from datetime import datetime
+from fastapi import UploadFile, File, Form
+import pandas as pd
+import io
 
 # Load the local NLP model into memory on startup
 try:
@@ -256,3 +259,45 @@ def ingest_fir(fir: FIRInput):
             "plates": plates
         }
     }
+
+#Determines if it is phone data or bank data
+@app.post("/api/ingest/structured")
+async def ingest_csv(
+    file: UploadFile = File(...),
+    data_type: str = Form(...),
+    analyst_id: str = Form(...)
+):
+    contents = await file.read()
+    df = pd.read_csv(io.BytesIO(contents), dtype=str)
+    
+    driver = get_db_session()
+    ingest_timestamp = datetime.utcnow().isoformat() + "Z"
+    
+    try:
+        with driver.session() as session:
+            if data_type == "CDR":
+                for _, row in df.iterrows():
+                    session.run("""
+                        MERGE (p1:Phone {number: $caller})
+                        ON CREATE SET p1.created_by = $analyst, p1.ingested_at = $timestamp, p1.source_document = $filename
+                        MERGE (p2:Phone {number: $receiver})
+                        ON CREATE SET p2.created_by = $analyst, p2.ingested_at = $timestamp, p2.source_document = $filename
+                        MERGE (p1)-[r:CALLED {timestamp: $call_time}]->(p2)
+                        ON CREATE SET r.duration = $duration, r.created_by = $analyst, r.ingested_at = $timestamp, r.source_document = $filename
+                    """, caller=str(row['caller']), receiver=str(row['receiver']), call_time=str(row['timestamp']), duration=str(row['duration']), analyst=analyst_id, timestamp=ingest_timestamp, filename=file.filename)
+                    
+            elif data_type == "BANK":
+                for _, row in df.iterrows():
+                    session.run("""
+                        MERGE (a1:Account {account_number: $sender})
+                        ON CREATE SET a1.created_by = $analyst, a1.ingested_at = $timestamp, a1.source_document = $filename
+                        MERGE (a2:Account {account_number: $receiver})
+                        ON CREATE SET a2.created_by = $analyst, a2.ingested_at = $timestamp, a2.source_document = $filename
+                        MERGE (a1)-[r:TRANSFERRED_TO {timestamp: $tx_time}]->(a2)
+                        ON CREATE SET r.amount = $amount, r.created_by = $analyst, r.ingested_at = $timestamp, r.source_document = $filename
+                    """, sender=str(row['sender']), receiver=str(row['receiver']), tx_time=str(row['timestamp']), amount=str(row['amount']), analyst=analyst_id, timestamp=ingest_timestamp, filename=file.filename)
+                    
+    finally:
+        driver.close()
+        
+    return {"status": "success", "processed_rows": len(df)}
