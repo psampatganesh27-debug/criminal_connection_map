@@ -9,6 +9,11 @@ import re
 from datetime import datetime
 from fastapi import UploadFile, File, Form
 import pandas as pd
+from fastapi.responses import StreamingResponse
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
 import io
 
 # Load the local NLP model into memory on startup
@@ -301,3 +306,81 @@ async def ingest_csv(
         driver.close()
         
     return {"status": "success", "processed_rows": len(df)}
+
+@app.get("/api/export/report/{node_id}")
+def export_node_report(node_id: str):
+    driver = get_db_session()
+    node_data = {}
+    connections = []
+
+    # Pull the absolute truth from the database
+    query = """
+    MATCH (n) WHERE elementId(n) = $node_id
+    OPTIONAL MATCH (n)-[r]-(m)
+    RETURN n, type(r) as rel_type, m
+    """
+    
+    try:
+        with driver.session() as session:
+            result = session.run(query, node_id=node_id)
+            records = list(result)
+            if not records:
+                raise HTTPException(status_code=404, detail="Entity not found")
+            
+            # Extract target properties
+            node_data = dict(records[0]["n"].items())
+            
+            # Extract connections
+            for record in records:
+                if record["m"]:
+                    conn_prop = dict(record["m"].items())
+                    rel = record["rel_type"]
+                    target_name = conn_prop.get("name") or conn_prop.get("number") or conn_prop.get("account_number") or conn_prop.get("fir_number") or "Unknown"
+                    connections.append([rel, target_name])
+    finally:
+        driver.close()
+
+    # Build the PDF buffer
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Document Header
+    elements.append(Paragraph("NET-WEAVER INTELLIGENCE DOSSIER", styles['Title']))
+    elements.append(Spacer(1, 12))
+
+    # Entity Details Table
+    elements.append(Paragraph("Target Entity Specifications", styles['Heading2']))
+    
+    details_data = [[k.replace('_', ' ').title(), str(v)] for k, v in node_data.items()]
+    t_details = Table(details_data, colWidths=[150, 300])
+    t_details.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('PADDING', (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(t_details)
+    elements.append(Spacer(1, 20))
+
+    # Relationships Table
+    if connections:
+        elements.append(Paragraph("First-Degree Operational Network", styles['Heading2']))
+        conn_data = [["Relationship", "Connected Entity"]] + connections
+        t_conn = Table(conn_data, colWidths=[150, 300])
+        t_conn.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkslategray),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('PADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(t_conn)
+
+    doc.build(elements)
+    buffer.seek(0)
+    
+    return StreamingResponse(
+        buffer, 
+        media_type="application/pdf", 
+        headers={"Content-Disposition": f"attachment; filename=Intelligence_Report_{node_id}.pdf"}
+    )

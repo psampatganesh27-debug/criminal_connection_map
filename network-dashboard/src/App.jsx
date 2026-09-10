@@ -663,6 +663,28 @@ export default function App() {
               <div style={{ backgroundColor: '#1f2937', padding: '8px', borderRadius: '4px', lineHeight: '1.4', color: '#d1d5db' }}>{selectedNode.properties.narrative}</div>
             </div>
           )}
+
+          {/* EXPORT DOSSIER BUTTON */}
+          <button 
+            onClick={() => window.open(`http://localhost:8000/api/export/report/${encodeURIComponent(selectedNode.id)}`, '_blank')}
+            style={{ 
+              marginTop: '8px', 
+              padding: '10px', 
+              backgroundColor: '#2563eb', 
+              color: '#fff', 
+              border: 'none', 
+              borderRadius: '4px', 
+              fontSize: '0.75rem', 
+              fontWeight: 'bold', 
+              cursor: 'pointer',
+              transition: 'background 0.2s'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
+            onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+          >
+            📄 Download Intelligence Dossier
+          </button>
+
         </div>
       )}
     </div>
