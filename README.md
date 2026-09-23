@@ -4,6 +4,8 @@
 
 Net-Weaver is a full-stack open-source intelligence (OSINT) and law enforcement platform. It ingests both structured financial logs and unstructured police narratives to automatically generate interactive, time-aware network graphs for criminal syndicate investigation.
 
+---
+
 ## Core Features
 
 *   **Multi-Modal Intelligence Ingestion:** Process unstructured police narratives (FIRs) via NLP entity extraction or upload structured CSVs for Call Data Records (CDR) and Bank Ledgers.
@@ -12,6 +14,8 @@ Net-Weaver is a full-stack open-source intelligence (OSINT) and law enforcement 
 *   **Advanced Pathfinding & Analytics:** Instantly calculate the shortest operational path between any two targets and track syndicate leadership via a real-time Betweenness Centrality leaderboard.
 *   **Evidentiary Dossier Generation:** One-click export of court-ready PDF intelligence reports directly from the database, ensuring strict data integrity and exact timestamps.
 
+---
+
 ## Tech Stack
 
 *   **Frontend:** React, ForceGraph2D
@@ -19,12 +23,25 @@ Net-Weaver is a full-stack open-source intelligence (OSINT) and law enforcement 
 *   **Database:** Neo4j (Graph Database)
 *   **Data Processing & Export:** spaCy (NLP), pandas (DataFrames), ReportLab (PDF Generation)
 
+---
+
 ## Prerequisites
 
 Before running this project locally, ensure you have the following installed:
 *   [Node.js](https://nodejs.org/) (v16 or higher)
 *   [Python](https://www.python.org/) (v3.9 or higher)
 *   [Neo4j Desktop](https://neo4j.com/download/) (Running locally on port 7687)
+
+---
+
+**Architecture Notes**
+Strict string typing is enforced on all CSV uploads to prevent destructive formatting of international phone numbers.
+
+Legacy nodes lacking a definitive creation timestamp default to 2026-08-01 for temporal scrubbing compatibility.
+
+The PDF export pipeline queries Neo4j directly rather than scraping the DOM, guaranteeing tamper-evident court documentation.
+
+---
 
 ## Local Setup
 
@@ -52,9 +69,4 @@ The application will launch in your default browser at http://localhost:3000.
 
 ---
 
-##**Architecture Notes**
-Strict string typing is enforced on all CSV uploads to prevent destructive formatting of international phone numbers.
 
-Legacy nodes lacking a definitive creation timestamp default to 2026-08-01 for temporal scrubbing compatibility.
-
-The PDF export pipeline queries Neo4j directly rather than scraping the DOM, guaranteeing tamper-evident court documentation.
