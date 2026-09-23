@@ -47,3 +47,14 @@ python -m spacy download en_core_web_sm
 
 # Boot the FastAPI server
 uvicorn main:app --reload
+
+The application will launch in your default browser at http://localhost:3000.
+
+---
+
+##**Architecture Notes**
+Strict string typing is enforced on all CSV uploads to prevent destructive formatting of international phone numbers.
+
+Legacy nodes lacking a definitive creation timestamp default to 2026-08-01 for temporal scrubbing compatibility.
+
+The PDF export pipeline queries Neo4j directly rather than scraping the DOM, guaranteeing tamper-evident court documentation.
