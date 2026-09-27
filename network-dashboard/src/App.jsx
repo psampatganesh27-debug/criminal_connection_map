@@ -60,8 +60,10 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
   const fetchNetworkData = (highlightNew = false) => {
-    fetch('http://localhost:8000/api/network')
+    fetch(`${API_BASE}/api/network`)
       .then((res) => res.json())
       .then((data) => {
         if (highlightNew && rawGraphData.nodes.length > 0) {
@@ -71,7 +73,6 @@ export default function App() {
           if (freshIds.size > 0) {
             setNewlyIngestedIds(freshIds)
 
-            // Smoothly pan and zoom to the center of newly created nodes
             setTimeout(() => {
               if (graphRef.current) {
                 const currentGraphNodes = graphRef.current.graphData?.()?.nodes || []
@@ -86,7 +87,6 @@ export default function App() {
               }
             }, 700)
 
-            // Fade the neon halo out after 12 seconds
             setTimeout(() => {
               setNewlyIngestedIds(new Set())
             }, 12000)
@@ -96,7 +96,7 @@ export default function App() {
       })
       .catch((err) => console.error('Error loading graph:', err))
 
-    fetch('http://localhost:8000/api/analytics/influencers')
+    fetch(`${API_BASE}/api/analytics/influencers`)
       .then((res) => res.json())
       .then((data) => setInfluencers(data))
       .catch((err) => console.error('Error loading influencers:', err))
@@ -121,7 +121,7 @@ export default function App() {
     e.preventDefault()
     if (!newFIR.fir_number || !newFIR.narrative) return
 
-    fetch('http://localhost:8000/api/ingest/fir', {
+    fetch(`${API_BASE}/api/ingest/fir`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newFIR)
@@ -150,7 +150,7 @@ export default function App() {
     formData.append('data_type', ingestType)
     formData.append('analyst_id', newFIR.analyst_id)
 
-    fetch('http://localhost:8000/api/ingest/structured', {
+    fetch(`${API_BASE}/api/ingest/structured`, {
       method: 'POST',
       body: formData
     })
@@ -250,7 +250,7 @@ export default function App() {
         const target = node
         setPathEndpoints([source, target])
         
-        fetch(`http://localhost:8000/api/network/path?source_id=${encodeURIComponent(source.id)}&target_id=${encodeURIComponent(target.id)}`)
+        fetch(`${API_BASE}/api/network/path?source_id=${encodeURIComponent(source.id)}&target_id=${encodeURIComponent(target.id)}`)
           .then(res => res.json())
           .then(data => {
             if (data.path && data.path.length > 0) {
@@ -666,7 +666,7 @@ export default function App() {
 
           {/* EXPORT DOSSIER BUTTON */}
           <button 
-            onClick={() => window.open(`http://localhost:8000/api/export/report/${encodeURIComponent(selectedNode.id)}`, '_blank')}
+            onClick={() => window.open(`${API_BASE}/api/export/report/${encodeURIComponent(selectedNode.id)}`, '_blank')}
             style={{ 
               marginTop: '8px', 
               padding: '10px', 
