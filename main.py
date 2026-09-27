@@ -180,7 +180,8 @@ def get_key_influencers():
 def ingest_fir(fir: FIRInput):
     doc = nlp(fir.narrative)
     
-    raw_suspects = [ent.text for ent in doc.ents if ent.label_ == "PERSON"]
+    # Extract persons, explicitly rejecting any alphanumeric strings (like vehicle plates)
+    raw_suspects = [ent.text for ent in doc.ents if ent.label_ == "PERSON" and not any(char.isdigit() for char in ent.text)]
     phones = re.findall(r'\+91\d{10}', fir.narrative)
     plates = re.findall(r'[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}', fir.narrative)
     
